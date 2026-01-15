@@ -1,0 +1,161 @@
+# Trade Opportunities API
+
+A FastAPI-based backend service that analyzes Indian market sectors and returns **structured markdown trade opportunity reports** using:
+
+- Live(ish) web data (DuckDuckGo HTML search with graceful fallback)  
+- Google Gemini (LLM) for analysis  
+- JWT authentication  
+- Per-user rate limiting  
+- In-memory session tracking (no database)  
+
+---
+
+## 1. Features
+
+- **Single main endpoint**:  
+  `GET /analyze/{sector}`  
+  Example: `/analyze/pharmaceuticals`, `/analyze/technology`, `/analyze/agriculture`
+
+- **What it returns**  
+  A JSON object with:
+  - `sector`: normalized sector name  
+  - `markdown_report`: a **ready-to-save `.md` report** containing:
+    - Executive summary  
+    - Trade opportunities  
+    - Risks & watchpoints  
+    - Suggested time horizon  
+    - Evidence & web source snippets  
+
+- **Security**
+  - JWT-based auth (`/token` using OAuth2 password flow)
+  - Input validation on sector
+  - Per-user **token-bucket rate limiting** (configurable via env)
+  - Simple in-memory session tracking (`calls`, timestamps)
+
+---
+
+## 2. Tech Stack
+
+- **Backend**: FastAPI
+- **HTTP client**: httpx (async)
+- **Auth**: OAuth2 + JWT (`python-jose`, `passlib[bcrypt]`)
+- **LLM**: Google Gemini (`google-generativeai`)
+- **Parsing**: BeautifulSoup + lxml
+- **Storage**: In-memory only (dicts)
+
+---
+
+## 3. Project Structure
+
+```bash
+trade-opportunities/
+├── app/
+│   ├── api/
+│   │   ├── __init__.py
+│   │   ├── deps.py               # shared dependencies (auth + rate limit + session)
+│   │   └── routes_analyze.py     # /analyze/{sector} endpoint
+│   │
+│   ├── core/
+│   │   ├── __init__.py
+│   │   ├── rate_limiter.py       # per-user token-bucket limiter
+│   │   ├── security.py           # JWT, OAuth2, user store
+│   │   └── session.py            # in-memory session tracking
+│   │
+│   ├── services/
+│   │   ├── __init__.py
+│   │   ├── ai_client.py          # Gemini integration
+│   │   ├── collector.py          # DuckDuckGo search + parsing
+│   │   └── report_builder.py     # Markdown report generator
+│   │
+│   ├── schemas/
+│   │   ├── __init__.py
+│   │   ├── analyze.py            # CollectedData, AIAnalysis, AnalyzeResponse
+│   │   └── auth.py               # Token, User, UserInDB
+│   │
+│   ├── utils/
+│   │   ├── __init__.py
+│   │   └── text.py               # (reserved for small helpers)
+│   │
+│   ├── config.py                 # Settings (env-based)
+│   └── main.py                   # FastAPI app, /token, /health
+│
+├── .env.example                  # local environment variables 
+├── requirements.txt
+└── README.md
+
+```
+
+## 4. Setup & Installation
+### 4.1 Clone & create virtualenv
+```
+git clone https://github.com/dpkgupta/trade-opportunities-api.git
+cd trade-opportunities
+
+python -m venv .venv
+# Windows PowerShell:
+.venv\Scripts\Activate.ps1
+# bash:
+# source .venv/bin/activate
+```
+
+### 4.2 Install dependencies
+```
+pip install -r requirements.txt
+```
+
+## 5. Environment Variables
+```
+GEMINI_API_KEY=gemini_api_key
+
+JWT_SECRET=some_long_random_secret_value
+JWT_ALGORITHM=HS256
+JWT_EXPIRE_MINUTES=60
+
+RATE_LIMIT_REQUESTS=3
+RATE_LIMIT_WINDOW_SECONDS=60
+```
+
+## 6. Running the application
+```
+uvicorn app.main:app --reload --port 8000
+```
+
+The API will be available at:
+- Swagger UI: http://127.0.0.1:8000/docs
+- ReDoc: http://127.0.0.1:8000/redoc
+- Health check: http://127.0.0.1:8000/health
+
+## 7. Usage
+### 7.1 Get JWT token (/token)
+Example users (you can adjust if needed):
+- username - prabal / password - prabal123
+- username - guest / password - guest123
+
+Request
+```
+curl -X POST "http://127.0.0.1:8000/token" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "username=prabal&password=prabal123"
+```
+
+Response
+```
+{
+  "access_token": "<JWT_TOKEN>",
+  "token_type": "bearer"
+}
+```
+
+### 7.2. Call /analyze/{sector}
+Request
+```
+curl "http://127.0.0.1:8000/analyze/pharmaceuticals" \
+  -H "Authorization: Bearer <JWT_TOKEN>"
+```
+Response
+```
+{
+  "sector": "pharmaceuticals",
+  "markdown_report": "# Trade Opportunities Report — Pharmaceuticals (India)\n\n_Generated at: 2025-11-19 17:21 UTC_\n\n## 1. Executive Summary\n..."
+}
+```
